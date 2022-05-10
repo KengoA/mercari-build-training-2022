@@ -21,6 +21,7 @@ import (
 
 const (
 	ImgDir = "images"
+	DBPath = "./db/mercari-build-training.db"
 )
 
 type Item struct {
@@ -40,7 +41,7 @@ func root(c echo.Context) error {
 }
 
 func getItems(c echo.Context) error {
-	db, err := sql.Open("sqlite3", "../db/mercari-build-training.db")
+	db, err := sql.Open("sqlite3", DBPath)
 	defer db.Close()
 	if err != nil {
 		c.Logger().Error(err)
@@ -69,7 +70,7 @@ func getItems(c echo.Context) error {
 
 func getItemByID(c echo.Context) error {
 	ID := c.Param("id")
-	db, err := sql.Open("sqlite3", "../db/mercari-build-training.db")
+	db, err := sql.Open("sqlite3", DBPath)
 	defer db.Close()
 	if err != nil {
 		c.Logger().Error(err)
@@ -103,7 +104,7 @@ func searchItems(c echo.Context) error {
 
 	c.Logger().Info(fmt.Sprintf("Searching for items including keyword: %s", keyword))
 
-	db, err := sql.Open("sqlite3", "../db/mercari-build-training.db")
+	db, err := sql.Open("sqlite3", DBPath)
 	defer db.Close()
 	if err != nil {
 		c.Logger().Error(err)
@@ -190,12 +191,13 @@ func addItem(c echo.Context) error {
 
 	c.Logger().Info(hashedFileName)
 
-	db, err := sql.Open("sqlite3", "../db/mercari-build-training.db")
+	db, err := sql.Open("sqlite3", DBPath)
 	defer db.Close()
 
 	if err != nil {
+		res := Response{Message: "Could not connect to database"}
 		c.Logger().Error(err)
-		return err
+		return c.JSON(http.StatusBadGateway, res)
 	}
 
 	cmd := "INSERT INTO items (name, category, image) VALUES (?, ?, ?)"
@@ -213,7 +215,7 @@ func deleteItemByID(c echo.Context) error {
 
 	c.Logger().Info(fmt.Sprintf("deleting item with id: %s", ID))
 
-	db, err := sql.Open("sqlite3", "../db/mercari-build-training.db")
+	db, err := sql.Open("sqlite3", DBPath)
 	defer db.Close()
 	if err != nil {
 		c.Logger().Error(err)
