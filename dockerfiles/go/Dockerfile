@@ -1,7 +1,8 @@
 FROM golang:1.18.0-alpine
 
 WORKDIR /project
-RUN apk add build-base
+RUN apk update 
+RUN apk add build-base sqlite
 
 COPY db ./db/
 

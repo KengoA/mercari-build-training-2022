@@ -3,15 +3,13 @@ package main
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
-	"image"
 	"io"
 	"net/http"
 	"os"
 	"path"
 	"strings"
-
-	"image/jpeg"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -21,14 +19,14 @@ import (
 
 const (
 	ImgDir = "images"
-	DBPath = "./db/mercari-build-training.db"
+	DBPath = "../db/mercari-build-training.db"
 )
 
 type Item struct {
-	ID       int    `db:"id" json:"id"`
-	Name     string `db:"name" json:"name"`
-	Category string `db:"category" json:"category"`
-	Image    string `db:"image" json:"image"`
+	ID            int    `db:"id" json:"id"`
+	Name          string `db:"name" json:"name"`
+	Category      string `db:"category" json:"category"`
+	ImageFilename string `db:"image_filename" json:"image_filename"`
 }
 
 type Response struct {
@@ -58,7 +56,7 @@ func getItems(c echo.Context) error {
 
 	for rows.Next() {
 		var item Item
-		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.Image); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.ImageFilename); err != nil {
 			c.Logger().Error(err)
 			return err
 		}
@@ -85,7 +83,7 @@ func getItemByID(c echo.Context) error {
 	}
 
 	var item Item
-	if err := dbRes.Scan(&item.ID, &item.Name, &item.Category, &item.Image); err != nil {
+	if err := dbRes.Scan(&item.ID, &item.Name, &item.Category, &item.ImageFilename); err != nil {
 		c.Logger().Error(err)
 		return err
 	}
@@ -120,7 +118,7 @@ func searchItems(c echo.Context) error {
 
 	for rows.Next() {
 		var item Item
-		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.Image); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.ImageFilename); err != nil {
 			c.Logger().Error(err)
 		}
 		items = append(items, &item)
@@ -129,48 +127,36 @@ func searchItems(c echo.Context) error {
 	return c.JSON(http.StatusOK, items)
 }
 
-func sha256SumFromFilePath(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, f); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%X", hash.Sum(nil)), nil
-}
-
-func imageHandler(filePath string) (image.Image, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	image, _, err := image.Decode(f)
-	return image, err
+func sha256SumFromString(s string) string {
+	binary := sha256.Sum256([]byte(s))
+	hash := hex.EncodeToString(binary[:])
+	return hash
 }
 
 func addItem(c echo.Context) error {
 	name := c.FormValue("name")
 	category := c.FormValue("category")
-	imagePath := c.FormValue("image")
+	file, err := c.FormFile("image")
 
-	c.Logger().Info(fmt.Sprintf("item received, name: %s, category: %s, image path: %s", name, category, imagePath))
-
-	image, err := imageHandler(imagePath)
+	// Open the file and image
 	if err != nil {
-		res := Response{Message: "Could not open image"}
+		res := Response{Message: "Could not open file"}
 		c.Logger().Error(err)
 		return c.JSON(http.StatusBadRequest, res)
 	}
 
-	hash, err := sha256SumFromFilePath(imagePath)
-	hashedFileName := hash + ".jpg"
+	image, err := file.Open()
 	if err != nil {
-		return err
+		res := Response{Message: "Could not read image from file"}
+		c.Logger().Error(err)
+		return c.JSON(http.StatusInternalServerError, res)
 	}
+	defer image.Close()
 
+	// Generate a new filename to save with a hash function
+	hashedFileName := sha256SumFromString(file.Filename) + ".jpg"
+
+	// Save the file under the images directory
 	newFile, err := os.Create(path.Join(ImgDir, hashedFileName))
 	if err != nil {
 		res := Response{Message: "Could not create image"}
@@ -179,18 +165,13 @@ func addItem(c echo.Context) error {
 	}
 	defer newFile.Close()
 
-	options := jpeg.Options{
-		Quality: 90,
-	}
-	err = jpeg.Encode(newFile, image, &options)
-	if err != nil {
-		res := Response{Message: "Could not encode new image"}
+	if _, err = io.Copy(newFile, image); err != nil {
+		res := Response{Message: "Could not save new image"}
 		c.Logger().Error(err)
 		return c.JSON(http.StatusBadRequest, res)
 	}
 
-	c.Logger().Info(hashedFileName)
-
+	// Write into the database
 	db, err := sql.Open("sqlite3", DBPath)
 	defer db.Close()
 
@@ -200,7 +181,7 @@ func addItem(c echo.Context) error {
 		return c.JSON(http.StatusBadGateway, res)
 	}
 
-	cmd := "INSERT INTO items (name, category, image) VALUES (?, ?, ?)"
+	cmd := "INSERT INTO items (name, category, image_filename) VALUES (?, ?, ?)"
 	_, err = db.Exec(cmd, name, category, hashedFileName)
 
 	if err != nil {
