@@ -16,4 +16,4 @@ run-go-image:
 
 .PHONY: add-test-item-with-image
 add-test-item-with-image:
-	curl -X POST --url 'http://localhost:9000/items' -d name=new_item_book_0 -d category=book -d image=images/book.jpg
+	curl -X POST --url 'http://localhost:9000/items' -F name=new-item -F category=book -F image=@image/book.jpg
