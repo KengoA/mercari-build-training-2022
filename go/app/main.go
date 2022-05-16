@@ -19,7 +19,7 @@ import (
 
 const (
 	ImgDir = "images"
-	DBPath = "../db/mercari-build-training.db"
+	DBPath = "db/mercari-build-training.db"
 )
 
 type Item struct {
@@ -185,10 +185,13 @@ func addItem(c echo.Context) error {
 	_, err = db.Exec(cmd, name, category, hashedFileName)
 
 	if err != nil {
+		res := Response{Message: "Could not write into database"}
 		c.Logger().Error(err)
-		return err
+		return c.JSON(http.StatusInternalServerError, res)
 	}
-	return nil
+
+	res := Response{Message: "Item added successfully"}
+	return c.JSON(http.StatusOK, res)
 }
 
 func deleteItemByID(c echo.Context) error {
